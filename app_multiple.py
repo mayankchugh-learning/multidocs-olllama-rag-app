@@ -337,7 +337,6 @@ Rules:
 def build_chain(selected_files: list):
     from langchain_ollama import OllamaEmbeddings, ChatOllama
     from langchain_community.vectorstores import Chroma
-    from langchain_community.retrievers import MergerRetriever
     from langchain_core.output_parsers import StrOutputParser
     from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 
@@ -371,9 +370,31 @@ def build_chain(selected_files: list):
     if not retrievers:
         return None
 
-    retriever = retrievers[0] if len(retrievers) == 1 else MergerRetriever(retrievers=retrievers)
     llm       = ChatOllama(model=LLM_MODEL, base_url=OLLAMA_BASE_URL, temperature=0.2, num_ctx=4096)
     prompt    = build_dynamic_prompt(selected_files)
+
+    def retrieve_docs(question: str):
+        if len(retrievers) == 1:
+            return retrievers[0].invoke(question)
+
+        merged = []
+        seen = set()
+        for r in retrievers:
+            try:
+                docs = r.invoke(question)
+            except Exception:
+                continue
+            for d in docs:
+                key = (
+                    d.metadata.get("source", ""),
+                    d.metadata.get("filename", ""),
+                    d.metadata.get("page", ""),
+                    d.page_content[:200]
+                )
+                if key not in seen:
+                    seen.add(key)
+                    merged.append(d)
+        return merged[:TOP_K]
 
     def format_docs(docs):
         return "\n\n".join(
@@ -385,8 +406,8 @@ def build_chain(selected_files: list):
     # LCEL chain — retriever returns docs, we keep them for source display
     chain = (
         RunnablePassthrough.assign(
-            context=RunnableLambda(lambda x: format_docs(retriever.invoke(x["question"]))),
-            source_documents=RunnableLambda(lambda x: retriever.invoke(x["question"]))
+            context=RunnableLambda(lambda x: format_docs(retrieve_docs(x["question"]))),
+            source_documents=RunnableLambda(lambda x: retrieve_docs(x["question"]))
         )
         | RunnablePassthrough.assign(
             answer=(prompt | llm | StrOutputParser())

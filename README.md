@@ -15,9 +15,9 @@ curl http://localhost:11434/api/tags
 
 
 
-uv pip install -r requirements.txt
+uv pip install -r multidocs-olllama-rag-app/requirements.txt
 
-streamlit run app_multiple.py --server.port 8080
+streamlit run multidocs-olllama-rag-app/app_multiple.py --server.port 8080
 
 source .venv/bin/activate
 
